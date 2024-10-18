@@ -6,6 +6,7 @@ import { linear, easeInSine, easeOutSine, easeInOutSine, easeInQuad, easeOutQuad
          easeInOutElastic, easeOutBounce, easeInBounce, easeInOutBounce } from 'easing-utils';
 
 // possible future todos, wait for instruction:
+// - stop animation when importing json
 // - custom grid strokeWeight/espessura
 // - change frame width/height and layer
 // - responsive move/delete buttons (make them bigger if the shape is big enough and grid is small)
@@ -528,7 +529,7 @@ new p5((p) => {
         p.animate(); // check function below (after draw)
 
         // old debug
-        //if(p.mouseY > 100) p.frameRate(60); else p.frameRate(2);
+        //if(p.mouseY > p.height/2) p.frameRate(60); else p.frameRate(2);
 
       } else {
         p.background(bgColor.r, bgColor.g, bgColor.b);
@@ -656,6 +657,7 @@ new p5((p) => {
         previousStep = parseFloat(currentEase( previousProgress ));
 
         if(previousProgress >= 0) {
+          //p.print(anim.step, previousProgress, previousStep);
 
           // the line below fixes a bug where some frames painted a frame ahead instantly
           if(anim.step%1 == 0 && previousStep != 0) anim.step -= 0.001;
@@ -681,6 +683,9 @@ new p5((p) => {
           anim.color.b = p.lerp(PARAMS.frames[p.int(anim.step)].color.b, PARAMS.frames[p.int(anim.step)+1].color.b, anim.step%1);
           anim.color.a = p.lerp(PARAMS.frames[p.int(anim.step)].color.a, PARAMS.frames[p.int(anim.step)+1].color.a, anim.step%1);
         } else if(anim.step >= 0.9 && previousProgress < 0) {
+          //p.print("curve");
+          //p.print(anim.step, previousProgress, previousStep);
+
           anim.progress = parseFloat(anim.progress.toFixed(2));
           anim.step = parseFloat(anim.step.toFixed(2));
           anim.step = p.int(anim.step);
@@ -705,8 +710,35 @@ new p5((p) => {
           anim.color.a = PARAMS.frames[p.int(anim.step)].color.a;
 
           // the following code fixed gaps that happened when both previous and anim were at the same place
-          if(previous.x == anim.x && previous.y == anim.y) {
-            let nextStep = parseFloat(currentEase( (anim.speed/1000).toFixed(2) ));
+          if(previous.x != anim.x || previous.y != anim.y) { // BIG EDIT: now this should draw the previous first
+            //p.print("previous is NOT anim, draw previous");
+            // i gotta do this extra steps here.. because later it will draw back, in this case it needs both back and forward. rn is forward, should be previous
+            for(let s = 0; s < anim.quality; s++) {
+              let etapa = { color: {} };
+              etapa.x = p.lerp(previous.x, anim.x, s*1/anim.quality);
+              etapa.y = p.lerp(previous.y, anim.y, s*1/anim.quality);
+              etapa.w = p.lerp(previous.w, anim.w, s*1/anim.quality);
+              etapa.h = p.lerp(previous.h, anim.h, s*1/anim.quality);
+              etapa.color.r = p.lerp(previous.color.r, anim.color.r, s*1/anim.quality);
+              etapa.color.g = p.lerp(previous.color.g, anim.color.g, s*1/anim.quality);
+              etapa.color.b = p.lerp(previous.color.b, anim.color.b, s*1/anim.quality);
+              etapa.color.a = p.lerp(previous.color.a, anim.color.a, s*1/anim.quality);
+              p.fill(etapa.color.r, etapa.color.g, etapa.color.b, etapa.color.a*255);
+              p.noStroke();
+              p.rect(etapa.x*PARAMS.gridSize, etapa.y*PARAMS.gridSize, etapa.w*PARAMS.gridSize, etapa.h*PARAMS.gridSize, PARAMS.gridSize*PARAMS.borderRadius);
+            }
+          }
+          //else { // else, update previous and anim to draw the FORWARD
+            previous.x = PARAMS.frames[p.int(anim.step)].x;
+            previous.y = PARAMS.frames[p.int(anim.step)].y;
+            previous.w = PARAMS.frames[p.int(anim.step)].w;
+            previous.h = PARAMS.frames[p.int(anim.step)].h;
+            previous.color.r = PARAMS.frames[p.int(anim.step)].color.r;
+            previous.color.g = PARAMS.frames[p.int(anim.step)].color.g;
+            previous.color.b = PARAMS.frames[p.int(anim.step)].color.b;
+            previous.color.a = PARAMS.frames[p.int(anim.step)].color.a;
+
+            let nextStep = parseFloat(currentEase( parseFloat((anim.speed/1000).toFixed(2)) ));
             anim.x = p.lerp(PARAMS.frames[p.int(anim.step)].x, PARAMS.frames[p.int(anim.step)+1].x, nextStep);
             anim.x = p.lerp(PARAMS.frames[p.int(anim.step)].x, PARAMS.frames[p.int(anim.step)+1].x, nextStep);
             anim.y = p.lerp(PARAMS.frames[p.int(anim.step)].y, PARAMS.frames[p.int(anim.step)+1].y, nextStep);
@@ -716,7 +748,30 @@ new p5((p) => {
             anim.color.g = p.lerp(PARAMS.frames[p.int(anim.step)].color.g, PARAMS.frames[p.int(anim.step)+1].color.g, nextStep);
             anim.color.b = p.lerp(PARAMS.frames[p.int(anim.step)].color.b, PARAMS.frames[p.int(anim.step)+1].color.b, nextStep);
             anim.color.a = p.lerp(PARAMS.frames[p.int(anim.step)].color.a, PARAMS.frames[p.int(anim.step)+1].color.a, nextStep);
-          }
+          // }
+          // below is also forward, but when previous isnt anim
+          // if(anim.step%1 < anim.speed/1000) {
+          //   p.print("fixed next AND previous step, it is now 1 speed from current step to next");
+          //   previous.x = PARAMS.frames[p.int(anim.step)].x;
+          //   previous.y = PARAMS.frames[p.int(anim.step)].y;
+          //   previous.w = PARAMS.frames[p.int(anim.step)].w;
+          //   previous.h = PARAMS.frames[p.int(anim.step)].h;
+          //   previous.color.r = PARAMS.frames[p.int(anim.step)].color.r;
+          //   previous.color.g = PARAMS.frames[p.int(anim.step)].color.g;
+          //   previous.color.b = PARAMS.frames[p.int(anim.step)].color.b;
+          //   previous.color.a = PARAMS.frames[p.int(anim.step)].color.a;
+
+          //   let nextStep = parseFloat(currentEase( parseFloat((anim.speed/1000).toFixed(2)) ));
+          //   anim.x = p.lerp(PARAMS.frames[p.int(anim.step)].x, PARAMS.frames[p.int(anim.step)+1].x, nextStep);
+          //   anim.x = p.lerp(PARAMS.frames[p.int(anim.step)].x, PARAMS.frames[p.int(anim.step)+1].x, nextStep);
+          //   anim.y = p.lerp(PARAMS.frames[p.int(anim.step)].y, PARAMS.frames[p.int(anim.step)+1].y, nextStep);
+          //   anim.w = p.lerp(PARAMS.frames[p.int(anim.step)].w, PARAMS.frames[p.int(anim.step)+1].w, nextStep);
+          //   anim.h = p.lerp(PARAMS.frames[p.int(anim.step)].h, PARAMS.frames[p.int(anim.step)+1].h, nextStep);
+          //   anim.color.r = p.lerp(PARAMS.frames[p.int(anim.step)].color.r, PARAMS.frames[p.int(anim.step)+1].color.r, nextStep);
+          //   anim.color.g = p.lerp(PARAMS.frames[p.int(anim.step)].color.g, PARAMS.frames[p.int(anim.step)+1].color.g, nextStep);
+          //   anim.color.b = p.lerp(PARAMS.frames[p.int(anim.step)].color.b, PARAMS.frames[p.int(anim.step)+1].color.b, nextStep);
+          //   anim.color.a = p.lerp(PARAMS.frames[p.int(anim.step)].color.a, PARAMS.frames[p.int(anim.step)+1].color.a, nextStep);
+          // }
         }
 
         for(let s = 0; s < anim.quality; s++) {
