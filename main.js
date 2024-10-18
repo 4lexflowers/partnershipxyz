@@ -309,6 +309,7 @@ new p5((p) => {
           //frame.colorOptions = corFrame;
         });
 
+        anim.active = false;
       } else {
         p.print("Please choose a JSON file.");
       }
@@ -358,7 +359,7 @@ new p5((p) => {
 
       if(saving) {
         let saveSize = PARAMS.gridSize * saveInfo.quality;
-        let saveRadius = PARAMS.borderRadius * saveInfo.quality;
+        let saveRadius = PARAMS.borderRadius;
 
         if(anim.step == 0) {
           img.clear();
@@ -529,7 +530,7 @@ new p5((p) => {
         p.animate(); // check function below (after draw)
 
         // old debug
-        //if(p.mouseY > p.height/2) p.frameRate(60); else p.frameRate(2);
+        // if(p.mouseY > p.height/2) p.frameRate(60); else p.frameRate(2);
 
       } else {
         p.background(bgColor.r, bgColor.g, bgColor.b);
