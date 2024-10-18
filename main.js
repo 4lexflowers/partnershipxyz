@@ -1,7 +1,25 @@
 import p5 from 'p5';
-import {Pane} from 'tweakpane';
+import { Pane } from 'tweakpane';
+import { linear, easeInSine, easeOutSine, easeInOutSine, easeInQuad, easeOutQuad, easeInOutQuad, easeInCubic, easeOutCubic,
+         easeInOutCubic, easeInQuart, easeOutQuart, easeInOutQuart, easeInQuint, easeOutQuint, easeInOutQuint, easeInExpo, easeOutExpo,
+         easeInOutExpo, easeInCirc, easeOutCirc, easeInOutCirc, easeInBack, easeOutBack, easeInOutBack, easeInElastic, easeOutElastic,
+         easeInOutElastic, easeOutBounce, easeInBounce, easeInOutBounce } from 'easing-utils';
 
-// next: frames tab? change frame width/height and layer, save as gif/mp4
+// possible future todos, wait for instruction:
+// - custom grid strokeWeight/espessura
+// - change frame width/height and layer
+// - responsive move/delete buttons (make them bigger if the shape is big enough and grid is small)
+// - save as gif/mp4 (this is going to be hard, p5js doesn't allow transparent gifs, but we do have the saveGif function for gifs with background)
+// - apply ease on save PNG? right now it saves all of them as linear. i think this is only useful on GIFs...
+// - realign when grid resize? sounds like too much work
+//
+// done this commit:
+// - apply ease on animation + select
+// - export/import animation as JSON
+// - restart animation on grid change
+// - padronizar cores das formas, escolher 4 ou 6
+// - optimize grid loading
+// - custom border radius
 
 const pane = new Pane({
   title: 'Parâmetros'
@@ -14,21 +32,115 @@ const PARAMS = {
   circleOpacity: 255,
   squareOpacity: 255,
   editing: false,
-  frames: []
+  frames: [],
+  borderRadius: 0.5
 };
 var anim = { x: 0, y: 0, w: 50, h: 50, color: 0, active: false, step: 0, speed: 50, loop: false, finished: false, quality: 10 };
+const coresRGB = {
+  cinzaEscuro: {r: 22, g: 49, b: 58, a: 1},
+  cinzaAlto: {r: 69, g: 95, b: 108, a: 1},
+  cinzaBaixo: {r: 116, g: 145, b: 161, a: 1},
+  cinzaClaro: {r: 161, g: 194, b: 213, a: 1},
+  verdeVibrante: {r: 1, g: 237, b: 7, a: 1},
+  laranjaEnergetico: {r: 255, g: 149, b: 1, a: 1}
+};
 
-pane.addBinding(PARAMS, 'bg', { label: "Cor Fundo", min: 0, max: 255 });
+const pastaFundo = pane.addFolder({ title: "Fundo" });
+// pane.addBinding(PARAMS, 'bg', { label: "Cor Fundo", min: 0, max: 255 });
+var corFundo = pastaFundo.addBlade({ label: "Cor", view: 'list',
+  options: [
+    {text: 'Cinza Escuro', value: coresRGB.cinzaEscuro},
+    {text: 'Cinza Claro', value: coresRGB.cinzaClaro},
+    {text: 'Verde Vibrante', value: coresRGB.verdeVibrante},
+    {text: 'Laranja Energético', value: coresRGB.laranjaEnergetico},
+  ],
+  value: coresRGB.cinzaEscuro
+}).on('change', () => { anim.finished = false; anim.step = 0; anim.progress = 0; });
+
+const paleta = pane.addBlade({ label: "Paleta", view: 'list',
+  options: [
+    {text: 'Quatro Cores', value: 4},
+    {text: 'Seis Cores', value: 6},
+    {text: 'Qualquer Cor!', value: 1}
+  ],
+  value: 4
+}).on('change', () => {
+  frames.children.forEach((oldBind) => { oldBind.dispose(); });
+  let paletteOptions;
+  switch(paleta.value) {
+    default:
+    case 4:
+      paletteOptions = [
+        {text: 'Laranja Energético', value: coresRGB.laranjaEnergetico},
+        {text: 'Verde Vibrante', value: coresRGB.verdeVibrante},
+        {text: 'Cinza Alto', value: coresRGB.cinzaAlto},
+        {text: 'Cinza Escuro', value: coresRGB.cinzaEscuro}
+      ]
+      break;
+    case 6:
+      paletteOptions = [
+        {text: 'Laranja Energético', value: coresRGB.laranjaEnergetico},
+        {text: 'Verde Vibrante', value: coresRGB.verdeVibrante},
+        {text: 'Cinza Claro', value: coresRGB.cinzaClaro},
+        {text: 'Cinza Baixo', value: coresRGB.cinzaBaixo},
+        {text: 'Cinza Alto', value: coresRGB.cinzaAlto},
+        {text: 'Cinza Escuro', value: coresRGB.cinzaEscuro}
+      ]
+      break;
+  }
+  PARAMS.frames.forEach((frame, i) => {
+    var corFrame;
+    if(paleta.value == 1) {
+      frame.color = { ...frame.color }; // cópia rasa pra não sobrepor o objeto coresRGB
+      corFrame = frames.addBinding(frame, 'color', { label: "Forma "+(i+1) });
+    } else {
+      paletteOptions.forEach((option) => {
+        if(frame.color.r == option.value.r && frame.color.g == option.value.g && frame.color.b == option.value.b && frame.color.a == option.value.a) {
+          frame.color = option.value;
+        }
+      });
+      corFrame = frames.addBlade({ label: "Forma "+(i+1), view: 'list',
+        options: paletteOptions, // aqui daria pra acrescentar uma cor nao identificada, pra nao ficar vazio. não sei se funciona
+        value: frame.color
+      }).on('change', () => { frame.color = corFrame.value });
+    }
+    //frame.colorOptions = corFrame; // useless
+  });
+  if(paleta.value == 1) {
+    PARAMS.bg = { r: corFundo.value.r, g: corFundo.value.g, b: corFundo.value.b, a: corFundo.value.a };
+    corFundo.dispose();
+    corFundo = pastaFundo.addBinding(PARAMS, 'bg', { label: "Cor" } ).on('change', () => { anim.finished = false; anim.step = 0; anim.progress = 0; });
+  } else {
+    if(corFundo.value) PARAMS.bg = corFundo.value;
+    paletteOptions.forEach((option) => {
+      if(PARAMS.bg.r == option.value.r && PARAMS.bg.g == option.value.g && PARAMS.bg.b == option.value.b && PARAMS.bg.a == option.value.a) {
+        PARAMS.bg = option.value;
+      }
+    });
+    corFundo.dispose();
+    corFundo = pastaFundo.addBlade({ label: "Cor", view: 'list',
+      options: paletteOptions,
+      value: PARAMS.bg // antes era coresRGB.cinzaEscuro
+    }).on('change', () => { anim.finished = false; anim.step = 0; anim.progress = 0; });
+  }
+});
+pane.addBinding(PARAMS, 'borderRadius', { label: "Arredondamento", min: 0, max: 10, step: 0.5 }).on('change', () => { anim.finished = false; anim.step = 0; anim.progress = 0; });
+
+var newGridSize = true;
 
 const malha = pane.addFolder({ title: "Malha" });
-malha.addBinding(PARAMS, 'gridColor', { label: "Cor" });
-malha.addBinding(PARAMS, 'gridSize', { label: "Tamanho", min: 20, max: 100, step: 10 });
-malha.addBinding(PARAMS, 'circleOpacity', { label: "Opacidade Círculo", min: 0, max: 255, step: 1 });
-malha.addBinding(PARAMS, 'squareOpacity', { label: "Opacidade Quadrado", min: 0, max: 255, step: 1 });
-malha.addBinding(PARAMS, 'viewGrid', { label: "Visível" }).on('change', () => {
-  anim.finished = false;
-  anim.step = 0;
-});
+// malha.addBinding(PARAMS, 'gridColor', { label: "Cor" });
+const corGrid = malha.addBlade({ label: "Cor", view: 'list',
+  options: [
+    {text: 'Preto', value: 0},
+    {text: 'Branco', value: 255}
+  ],
+  value: 0
+}).on('change', () => { if(PARAMS.viewGrid && (PARAMS.circleOpacity > 0 || PARAMS.squareOpacity > 0)) { newGridSize = true; anim.finished = false; anim.step = 0; anim.progress = 0; } });
+malha.addBinding(PARAMS, 'gridSize', { label: "Tamanho", min: 20, max: 100, step: 10 }).on('change', () => { newGridSize = true; anim.finished = false; anim.step = 0; anim.progress = 0; });
+malha.addBinding(PARAMS, 'circleOpacity', { label: "Opacidade Círculo", min: 0, max: 255, step: 1 }).on('change', () => { if(PARAMS.viewGrid) { newGridSize = true; anim.finished = false; anim.step = 0; anim.progress = 0; } });
+malha.addBinding(PARAMS, 'squareOpacity', { label: "Opacidade Quadrado", min: 0, max: 255, step: 1 }).on('change', () => { if(PARAMS.viewGrid) { newGridSize = true; anim.finished = false; anim.step = 0; anim.progress = 0; } });
+malha.addBinding(PARAMS, 'viewGrid', { label: "Visível" }).on('change', () => { anim.finished = false; anim.step = 0; anim.progress = 0; });
 
 pane.addButton({ title: 'Nova Animação' }).on('click', () => {
   anim.active = false;
@@ -36,10 +148,56 @@ pane.addButton({ title: 'Nova Animação' }).on('click', () => {
   PARAMS.editing = true;
 });
 
-const frames = pane.addFolder({ title: "Animação" });
+var importingJSON = false;
+pane.addButton({ title: 'Importar Animação (JSON)' }).on('click', () => {
+  importingJSON = true;
+});
 
-const vel = pane.addBinding(anim, 'speed', { label: "Velocidade", min: 0, max: 100, step: 1 });
-const steps = pane.addBinding(anim, 'quality', { label: "Etapas", min: 1, max: 20, step: 1 });
+const frames = pane.addFolder({ title: "Animação" }).on('change', () => { anim.finished = false; anim.step = 0; anim.progress = 0; });
+
+const vel = pane.addBinding(anim, 'speed', { label: "Velocidade", min: 0, max: 100, step: 1 }).on('change', () => { anim.finished = false; anim.step = 0; anim.progress = 0; });
+const steps = pane.addBinding(anim, 'quality', { label: "Etapas", min: 1, max: 50, step: 1 }).on('change', () => { anim.finished = false; anim.step = 0; anim.progress = 0; });
+
+const easeType = pane.addBlade({
+  view: 'list',
+  label: 'Easing',
+  options: [
+    { text: 'linear', value: 'linear' },
+    { text: 'easeInSine', value: 'easeInSine' },
+    { text: 'easeOutSine', value: 'easeOutSine' },
+    { text: 'easeInOutSine', value: 'easeInOutSine' },
+    { text: 'easeInQuad', value: 'easeInQuad' },
+    { text: 'easeOutQuad', value: 'easeOutQuad' },
+    { text: 'easeInOutQuad', value: 'easeInOutQuad' },
+    { text: 'easeInCubic', value: 'easeInCubic' },
+    { text: 'easeOutCubic', value: 'easeOutCubic' },
+    { text: 'easeInOutCubic', value: 'easeInOutCubic' },
+    { text: 'easeInQuart', value: 'easeInQuart' },
+    { text: 'easeOutQuart', value: 'easeOutQuart' },
+    { text: 'easeInOutQuart', value: 'easeInOutQuart' },
+    { text: 'easeInQuint', value: 'easeInQuint' },
+    { text: 'easeOutQuint', value: 'easeOutQuint' },
+    { text: 'easeInOutQuint', value: 'easeInOutQuint' },
+    { text: 'easeInExpo', value: 'easeInExpo' },
+    { text: 'easeOutExpo', value: 'easeOutExpo' },
+    { text: 'easeInOutExpo', value: 'easeInOutExpo' },
+    { text: 'easeInCirc', value: 'easeInCirc' },
+    { text: 'easeOutCirc', value: 'easeOutCirc' },
+    { text: 'easeInOutCirc', value: 'easeInOutCirc' },
+    // the eases below do not match the project, as they will draw an ugly version
+    // { text: 'easeInBack', value: 'easeInBack' },
+    // { text: 'easeOutBack', value: 'easeOutBack' },
+    // { text: 'easeInOutBack', value: 'easeInOutBack' },
+    // { text: 'easeInElastic', value: 'easeInElastic' },
+    // { text: 'easeOutElastic', value: 'easeOutElastic' },
+    // { text: 'easeInOutElastic', value: 'easeInOutElastic' },
+    // { text: 'easeOutBounce', value: 'easeOutBounce' },
+    // { text: 'easeInBounce', value: 'easeInBounce' },
+    // { text: 'easeInOutBounce', value: 'easeInOutBounce' }
+  ],
+  value: 'linear'
+}).on('change', () => { anim.finished = false; anim.step = 0; anim.progress = 0; });
+
 const loop = pane.addBinding(anim, 'loop', { label: "Loop" });
 const play = pane.addButton({ title: 'Rodar Animação', hidden: true }).on('click', () => {
   anim.x = PARAMS.frames[0].x;
@@ -49,6 +207,8 @@ const play = pane.addButton({ title: 'Rodar Animação', hidden: true }).on('cli
   anim.color = { r: PARAMS.frames[0].color.r, g: PARAMS.frames[0].color.g, b: PARAMS.frames[0].color.b, a: PARAMS.frames[0].color.a };
   anim.active = true;
   anim.step = 0;
+  anim.easedStep = 0;
+  anim.progress = 0;
   anim.finished = false;
 });
 const stop = pane.addButton({ title: 'Parar Animação', hidden: true }).on('click', () => {
@@ -56,15 +216,30 @@ const stop = pane.addButton({ title: 'Parar Animação', hidden: true }).on('cli
 });
 
 var saving = false;
+var exportingJSON = false;
 var saveInfo = { margin: true, transparent: true, quality: 1 };
 const saveButtons = pane.addFolder({ title: "Salvar", hidden: true });
-saveButtons.addBinding(saveInfo, "margin", { label: "Margem" });
-saveButtons.addBinding(saveInfo, "transparent", { label: "Transparente" });
-saveButtons.addBinding(saveInfo, "quality", { label: "Resolução", min: 1, max: 10, step: 1 });
-saveButtons.addButton({ title: 'Salvar como PNG' }).on('click', () => {
+
+const saveTabs = saveButtons.addTab({
+  pages: [
+    {title: 'PNG'},
+    {title: 'JSON'},
+  ],
+});
+
+saveTabs.pages[0].addBinding(saveInfo, "margin", { label: "Margem" });
+saveTabs.pages[0].addBinding(saveInfo, "transparent", { label: "Transparente" });
+saveTabs.pages[0].addBinding(saveInfo, "quality", { label: "Resolução", min: 1, max: 10, step: 1 });
+saveTabs.pages[0].addButton({ title: 'Salvar como PNG' }).on('click', () => {
   saving = true;
   anim.finished = false;
   anim.step = 0;
+  anim.progress = 0;
+});
+
+saveTabs.pages[1].addButton({ title: 'Salvar como JSON' }).on('click', () => {
+  console.log("Saving JSON...");
+  exportingJSON = true;
 });
 
 new p5((p) => {
@@ -77,16 +252,112 @@ new p5((p) => {
   var draginfo = {};
   var clickOnX = false;
   var img; // img to be saved later
+  var JSONloader;
+  var gridImg; // grid image, to avoid looping the grid every frame
 
     p.setup = () => {
       p.createCanvas(p.windowWidth, p.windowHeight);
       img = p.createGraphics(p.width, p.height);
+      JSONloader = p.createFileInput(p.handleJSON);
+      JSONloader.hide();
     };
+    p.handleJSON = (file) => {
+      if(file.subtype === "json") {
+        PARAMS.frames = [];
+        PARAMS.frames = file.data;
+        
+        frames.children.forEach((oldBind) => { oldBind.dispose(); });
+        PARAMS.frames.forEach((frame, i) => {
+          let paletteOptions;
+          switch(paleta.value) {
+            default:
+            case 4:
+              paletteOptions = [
+                {text: 'Laranja Energético', value: coresRGB.laranjaEnergetico},
+                {text: 'Verde Vibrante', value: coresRGB.verdeVibrante},
+                {text: 'Cinza Alto', value: coresRGB.cinzaAlto},
+                {text: 'Cinza Escuro', value: coresRGB.cinzaEscuro}
+              ]
+              break;
+            case 6:
+              paletteOptions = [
+                {text: 'Laranja Energético', value: coresRGB.laranjaEnergetico},
+                {text: 'Verde Vibrante', value: coresRGB.verdeVibrante},
+                {text: 'Cinza Claro', value: coresRGB.cinzaClaro},
+                {text: 'Cinza Baixo', value: coresRGB.cinzaBaixo},
+                {text: 'Cinza Alto', value: coresRGB.cinzaAlto},
+                {text: 'Cinza Escuro', value: coresRGB.cinzaEscuro}
+              ]
+              break;
+          }
+
+          var corFrame;
+          if(paleta.value == 1) {
+            corFrame = frames.addBinding(frame, 'color', { label: "Forma "+(i+1) });
+          } else {
+            paletteOptions.forEach((option) => {
+              if(frame.color.r == option.value.r && frame.color.g == option.value.g && frame.color.b == option.value.b && frame.color.a == option.value.a) {
+                frame.color = option.value;
+              }
+            });
+            corFrame = frames.addBlade({ label: "Forma "+(i+1), view: 'list',
+              options: paletteOptions,
+              value: frame.color
+            }).on('change', () => { frame.color = corFrame.value });
+          }
+          //frame.colorOptions = corFrame;
+        });
+
+      } else {
+        p.print("Please choose a JSON file.");
+      }
+    }
+
     p.draw = () => {
       let bgColor = PARAMS.bg;
+      if(paleta.value != 1) bgColor = corFundo.value;
+
+      if(exportingJSON) {
+        let savedJSON = [];
+        PARAMS.frames.forEach((frame) => {
+          savedJSON.push({
+            x: frame.x,
+            y: frame.y,
+            w: frame.w,
+            h: frame.h,
+            color: {r: frame.color.r, g: frame.color.g, b: frame.color.b, a: frame.color.a}
+          });
+        });
+        p.saveJSON(savedJSON, "partnership.json");
+        exportingJSON = false;
+      }
+      if(importingJSON) {
+        JSONloader.elt.click();
+        importingJSON = false;
+      }
+
+      if(newGridSize && PARAMS.viewGrid) {
+        gridImg = p.createGraphics(p.width, p.height);
+        grid(p.width/PARAMS.gridSize, p.height/PARAMS.gridSize, (i, j) => {
+          let s = PARAMS.gridSize;
+          gridImg.noFill();
+
+          gridImg.strokeWeight(1);
+          //p.stroke(PARAMS.gridColor.r, PARAMS.gridColor.g, PARAMS.gridColor.b, PARAMS.squareOpacity);
+          gridImg.stroke(corGrid.value, PARAMS.squareOpacity);
+          gridImg.square(i*s, j*s, s);
+
+          //p.stroke(PARAMS.gridColor.r, PARAMS.gridColor.g, PARAMS.gridColor.b, PARAMS.circleOpacity);
+          gridImg.stroke(corGrid.value, PARAMS.circleOpacity);
+          gridImg.ellipseMode(p.CORNER);
+          gridImg.circle(i*s, j*s, s);
+        });
+        newGridSize = false;
+      }
 
       if(saving) {
         let saveSize = PARAMS.gridSize * saveInfo.quality;
+        let saveRadius = PARAMS.borderRadius * saveInfo.quality;
 
         if(anim.step == 0) {
           img.clear();
@@ -153,7 +424,7 @@ new p5((p) => {
             etapa.color.a = p.lerp(previous.color.a, anim.color.a, s*1/anim.quality);
             img.fill(etapa.color.r, etapa.color.g, etapa.color.b, etapa.color.a*255);
             img.noStroke();
-            img.rect(etapa.x*saveSize, etapa.y*saveSize, etapa.w*saveSize, etapa.h*saveSize, saveSize/2);
+            img.rect(etapa.x*saveSize, etapa.y*saveSize, etapa.w*saveSize, etapa.h*saveSize, saveSize*saveRadius);
           }
         } else if(!anim.finished) {
           let previous = { color: {} };
@@ -188,11 +459,11 @@ new p5((p) => {
             etapa.color.a = p.lerp(previous.color.a, anim.color.a, s*1/anim.quality);
             img.fill(etapa.color.r, etapa.color.g, etapa.color.b, etapa.color.a*255);
             img.noStroke();
-            img.rect(etapa.x*saveSize, etapa.y*saveSize, etapa.w*saveSize, etapa.h*saveSize, saveSize/2);
+            img.rect(etapa.x*saveSize, etapa.y*saveSize, etapa.w*saveSize, etapa.h*saveSize, saveSize*saveRadius);
             if(s+1 > anim.quality) {
               img.fill(anim.color.r, anim.color.g, anim.color.b, anim.color.a*255);
               img.noStroke();
-              img.rect(anim.x*saveSize, anim.y*saveSize, anim.w*saveSize, anim.h*saveSize, saveSize/2);
+              img.rect(anim.x*saveSize, anim.y*saveSize, anim.w*saveSize, anim.h*saveSize, saveSize*saveRadius);
             }
           }
           anim.finished = true;
@@ -228,6 +499,7 @@ new p5((p) => {
 
       if(PARAMS.frames.length > 0) frames.hidden = false; else frames.hidden = true;
       if(PARAMS.frames.length > 1) vel.hidden = false; else vel.hidden = true;
+      if(PARAMS.frames.length > 1) easeType.hidden = false; else easeType.hidden = true;
       if(PARAMS.frames.length > 1) steps.hidden = false; else steps.hidden = true;
       if(PARAMS.frames.length > 1) loop.hidden = false; else loop.hidden = true;
       if(PARAMS.frames.length > 1) play.hidden = false; else play.hidden = true;
@@ -242,15 +514,21 @@ new p5((p) => {
               let s = PARAMS.gridSize;
               p.noFill();
               p.strokeWeight(1);
-              p.stroke(PARAMS.gridColor.r, PARAMS.gridColor.g, PARAMS.gridColor.b, PARAMS.squareOpacity);
+              //p.stroke(PARAMS.gridColor.r, PARAMS.gridColor.g, PARAMS.gridColor.b, PARAMS.squareOpacity);
+              p.stroke(corGrid.value, PARAMS.squareOpacity);
               p.square(i*s, j*s, s);
-              p.stroke(PARAMS.gridColor.r, PARAMS.gridColor.g, PARAMS.gridColor.b, PARAMS.circleOpacity); p.ellipseMode(p.CORNER);
+              p.ellipseMode(p.CORNER);
+              //p.stroke(PARAMS.gridColor.r, PARAMS.gridColor.g, PARAMS.gridColor.b, PARAMS.circleOpacity);
+              p.stroke(corGrid.value, PARAMS.circleOpacity);
               p.circle(i*s, j*s, s);
             });
           }
         }
         
-        p.animate(); // check function below (after draw, line 359 for now)
+        p.animate(); // check function below (after draw)
+
+        // old debug
+        //if(p.mouseY > 100) p.frameRate(60); else p.frameRate(2);
 
       } else {
         p.background(bgColor.r, bgColor.g, bgColor.b);
@@ -264,7 +542,7 @@ new p5((p) => {
           //p.stroke(0); p.strokeWeight(3);
           p.noStroke();
           p.fill(frame.color.r, frame.color.g, frame.color.b, frame.color.a*255);
-          p.rect(frame.x*PARAMS.gridSize, frame.y*PARAMS.gridSize, frame.w*PARAMS.gridSize, frame.h*PARAMS.gridSize, PARAMS.gridSize/2);
+          p.rect(frame.x*PARAMS.gridSize, frame.y*PARAMS.gridSize, frame.w*PARAMS.gridSize, frame.h*PARAMS.gridSize, PARAMS.gridSize*PARAMS.borderRadius);
         });
 
         if(p.mouseIsPressed && !anim.active && novaForma.startX != undefined && novaForma.startY != undefined) {
@@ -280,22 +558,29 @@ new p5((p) => {
           p.fill(255, 255, 255, 100);
           p.stroke(0);
           p.strokeWeight(4);
-          p.rect(frame.x*PARAMS.gridSize, frame.y*PARAMS.gridSize, frame.w*PARAMS.gridSize, frame.h*PARAMS.gridSize, PARAMS.gridSize/2);
+          p.rect(frame.x*PARAMS.gridSize, frame.y*PARAMS.gridSize, frame.w*PARAMS.gridSize, frame.h*PARAMS.gridSize, PARAMS.gridSize*PARAMS.borderRadius);
         } else novaForma = {};
 
+        // circles and squares grid
         if(PARAMS.viewGrid) {
-          grid(p.width/PARAMS.gridSize, p.height/PARAMS.gridSize, (i, j) => {
-            let s = PARAMS.gridSize;
-            p.noFill();
+          // optimize this: use image instead of loop. change img (loop inside createGraphics) when user changes gridSize.
 
-            p.strokeWeight(1);
-            p.stroke(PARAMS.gridColor.r, PARAMS.gridColor.g, PARAMS.gridColor.b, PARAMS.squareOpacity);
-            p.square(i*s, j*s, s);
+          p.image(gridImg, 0, 0);
 
-            p.stroke(PARAMS.gridColor.r, PARAMS.gridColor.g, PARAMS.gridColor.b, PARAMS.circleOpacity);
-            p.ellipseMode(p.CORNER);
-            p.circle(i*s, j*s, s);
-          });
+          // grid(p.width/PARAMS.gridSize, p.height/PARAMS.gridSize, (i, j) => {
+          //   let s = PARAMS.gridSize;
+          //   p.noFill();
+
+          //   p.strokeWeight(1);
+          //   //p.stroke(PARAMS.gridColor.r, PARAMS.gridColor.g, PARAMS.gridColor.b, PARAMS.squareOpacity);
+          //   p.stroke(corGrid.value, PARAMS.squareOpacity);
+          //   p.square(i*s, j*s, s);
+
+          //   //p.stroke(PARAMS.gridColor.r, PARAMS.gridColor.g, PARAMS.gridColor.b, PARAMS.circleOpacity);
+          //   p.stroke(corGrid.value, PARAMS.circleOpacity);
+          //   p.ellipseMode(p.CORNER);
+          //   p.circle(i*s, j*s, s);
+          // });
         }
 
         hoveringEdit = false;
@@ -311,9 +596,10 @@ new p5((p) => {
         // just the outline of the frames.. they need to be ABOVE the grid, or else it looks bad
         PARAMS.frames.forEach((frame, i) => {
           p.stroke(0); p.strokeWeight(3); p.noFill();
-          p.rect(frame.x*PARAMS.gridSize, frame.y*PARAMS.gridSize, frame.w*PARAMS.gridSize, frame.h*PARAMS.gridSize, PARAMS.gridSize/2);
+          p.rect(frame.x*PARAMS.gridSize, frame.y*PARAMS.gridSize, frame.w*PARAMS.gridSize, frame.h*PARAMS.gridSize, PARAMS.gridSize*PARAMS.borderRadius);
         });
         
+        // selection circle (the one that shows where your mouse is and has a dashed circle)
         if(!anim.active && !hoveringEdit && !dragging) {
           let selection = {
             x: p.int(p.mouseX / PARAMS.gridSize),
@@ -357,12 +643,26 @@ new p5((p) => {
     };
 
     p.animate = () => {
-      if(anim.step < PARAMS.frames.length-1) {
-        let previous = { color: {} };
-        // if we don't work with nf here, the code bugs (numbers too close to zero result in e-16)
-        let previousStep = p.nf(anim.step%1, 1, 2) - p.nf(anim.speed/1000, 1, 2);
+      if((anim.step).toFixed(2) < PARAMS.frames.length-1) {
+        // anim.progress = parseFloat(anim.progress.toFixed(2));
+        // anim.step = parseFloat(anim.step.toFixed(2));
 
-        if(previousStep >= 0) {
+        let previous = { color: {} };
+        // numbers too close to zero result in e-16, used nf. edit: changed nf to toFixed(2) bc nf returned a string... tofixed also returns a string. im cooked. my final attempt is using parsefloat
+        let previousStep = ((anim.step).toFixed(2)%1).toFixed(2) - (anim.speed/1000).toFixed(2);
+        // previousStep = easeInSine( p.nf( (anim.progress-anim.speed/1000) % 1, 1, 2) ); // COMPLETELY WRONG idk why. below is correct version
+        // fixed the conversion of progress below
+        let previousProgress = ((anim.progress).toFixed(2)%1).toFixed(2) - (anim.speed/1000).toFixed(2);
+        previousStep = parseFloat(currentEase( previousProgress ));
+
+        if(previousProgress >= 0) {
+
+          // the line below fixes a bug where some frames painted a frame ahead instantly
+          if(anim.step%1 == 0 && previousStep != 0) anim.step -= 0.001;
+
+          //anim.progress = parseFloat(anim.progress.toFixed(2));
+          //anim.step = parseFloat(anim.step.toFixed(2));
+
           previous.x = p.lerp(PARAMS.frames[p.int(anim.step)].x, PARAMS.frames[p.int(anim.step)+1].x, previousStep);
           previous.y = p.lerp(PARAMS.frames[p.int(anim.step)].y, PARAMS.frames[p.int(anim.step)+1].y, previousStep);
           previous.w = p.lerp(PARAMS.frames[p.int(anim.step)].w, PARAMS.frames[p.int(anim.step)+1].w, previousStep);
@@ -380,8 +680,12 @@ new p5((p) => {
           anim.color.g = p.lerp(PARAMS.frames[p.int(anim.step)].color.g, PARAMS.frames[p.int(anim.step)+1].color.g, anim.step%1);
           anim.color.b = p.lerp(PARAMS.frames[p.int(anim.step)].color.b, PARAMS.frames[p.int(anim.step)+1].color.b, anim.step%1);
           anim.color.a = p.lerp(PARAMS.frames[p.int(anim.step)].color.a, PARAMS.frames[p.int(anim.step)+1].color.a, anim.step%1);
-        } else if(anim.step > 1) {
-          previousStep = previousStep + 1;
+        } else if(anim.step >= 0.9 && previousProgress < 0) {
+          anim.progress = parseFloat(anim.progress.toFixed(2));
+          anim.step = parseFloat(anim.step.toFixed(2));
+          anim.step = p.int(anim.step);
+          previousStep = parseFloat(currentEase( previousProgress + 1 ));
+          
           previous.x = p.lerp(PARAMS.frames[p.int(anim.step)-1].x, PARAMS.frames[p.int(anim.step)].x, previousStep);
           previous.y = p.lerp(PARAMS.frames[p.int(anim.step)-1].y, PARAMS.frames[p.int(anim.step)].y, previousStep);
           previous.w = p.lerp(PARAMS.frames[p.int(anim.step)-1].w, PARAMS.frames[p.int(anim.step)].w, previousStep);
@@ -399,6 +703,20 @@ new p5((p) => {
           anim.color.g = PARAMS.frames[p.int(anim.step)].color.g;
           anim.color.b = PARAMS.frames[p.int(anim.step)].color.b;
           anim.color.a = PARAMS.frames[p.int(anim.step)].color.a;
+
+          // the following code fixed gaps that happened when both previous and anim were at the same place
+          if(previous.x == anim.x && previous.y == anim.y) {
+            let nextStep = parseFloat(currentEase( (anim.speed/1000).toFixed(2) ));
+            anim.x = p.lerp(PARAMS.frames[p.int(anim.step)].x, PARAMS.frames[p.int(anim.step)+1].x, nextStep);
+            anim.x = p.lerp(PARAMS.frames[p.int(anim.step)].x, PARAMS.frames[p.int(anim.step)+1].x, nextStep);
+            anim.y = p.lerp(PARAMS.frames[p.int(anim.step)].y, PARAMS.frames[p.int(anim.step)+1].y, nextStep);
+            anim.w = p.lerp(PARAMS.frames[p.int(anim.step)].w, PARAMS.frames[p.int(anim.step)+1].w, nextStep);
+            anim.h = p.lerp(PARAMS.frames[p.int(anim.step)].h, PARAMS.frames[p.int(anim.step)+1].h, nextStep);
+            anim.color.r = p.lerp(PARAMS.frames[p.int(anim.step)].color.r, PARAMS.frames[p.int(anim.step)+1].color.r, nextStep);
+            anim.color.g = p.lerp(PARAMS.frames[p.int(anim.step)].color.g, PARAMS.frames[p.int(anim.step)+1].color.g, nextStep);
+            anim.color.b = p.lerp(PARAMS.frames[p.int(anim.step)].color.b, PARAMS.frames[p.int(anim.step)+1].color.b, nextStep);
+            anim.color.a = p.lerp(PARAMS.frames[p.int(anim.step)].color.a, PARAMS.frames[p.int(anim.step)+1].color.a, nextStep);
+          }
         }
 
         for(let s = 0; s < anim.quality; s++) {
@@ -413,12 +731,26 @@ new p5((p) => {
           etapa.color.a = p.lerp(previous.color.a, anim.color.a, s*1/anim.quality);
           p.fill(etapa.color.r, etapa.color.g, etapa.color.b, etapa.color.a*255);
           p.noStroke();
-          p.rect(etapa.x*PARAMS.gridSize, etapa.y*PARAMS.gridSize, etapa.w*PARAMS.gridSize, etapa.h*PARAMS.gridSize, PARAMS.gridSize/2);
+          p.rect(etapa.x*PARAMS.gridSize, etapa.y*PARAMS.gridSize, etapa.w*PARAMS.gridSize, etapa.h*PARAMS.gridSize, PARAMS.gridSize*PARAMS.borderRadius);
+          //p.fill(0); p.stroke(255); p.strokeWeight(2);
+          //p.text(p.nf(anim.step, 1, 2)+" | "+p.nf(previousProgress, 1, 2)+" | "+p.nf(previousStep, 1, 2), etapa.x*PARAMS.gridSize, etapa.y*PARAMS.gridSize);
         }
-      } else if(!anim.finished) {
+      } else if(!anim.finished) { // only enters here if anim.step >= PARAMS.frames.length-1 (if the step is beyond the last frame)
+        
+        anim.progress = parseFloat(anim.progress.toFixed(2));
+        anim.step = parseFloat(anim.step.toFixed(2));
+        
         let previous = { color: {} };
-        let previousStep = p.nf(anim.step%1, 1, 2) - p.nf(anim.speed/1000, 1, 2);
-        previousStep += 1;
+        let previousStep = ((anim.step).toFixed(2)%1).toFixed(2) - (anim.speed/1000).toFixed(2); // this is wrong, we shouldnt use this
+        // this fixed the "going back in the end" issue. switched below "p.float(p.nf(anim.progress%1, 1, 2))" by "(anim.progress).toFixed(2)%1"
+        let previousProgress = ((anim.progress).toFixed(2)%1).toFixed(2) - (anim.speed/1000).toFixed(2);
+        // previousStep = easeInSine( p.nf( (anim.progress-anim.speed/1000) % 1, 1, 2) ); // completely wrong, idk why, ignore
+        if(previousProgress < 0) previousStep = currentEase( previousProgress + 1 );
+        else previousStep = currentEase( previousProgress );
+        
+        // i seriously don't know why i need this next line but it BREAKS if i don't have it
+        if(p.float(p.nf(anim.progress%1, 1, 2)) == p.float(p.nf(anim.speed/1000, 1, 2))) previousStep += 1;
+
         previous.x = p.lerp(PARAMS.frames[p.int(anim.step)-1].x, PARAMS.frames[p.int(anim.step)].x, previousStep);
         previous.y = p.lerp(PARAMS.frames[p.int(anim.step)-1].y, PARAMS.frames[p.int(anim.step)].y, previousStep);
         previous.w = p.lerp(PARAMS.frames[p.int(anim.step)-1].w, PARAMS.frames[p.int(anim.step)].w, previousStep);
@@ -436,7 +768,7 @@ new p5((p) => {
         anim.color.g = PARAMS.frames[PARAMS.frames.length-1].color.g;
         anim.color.b = PARAMS.frames[PARAMS.frames.length-1].color.b;
         anim.color.a = PARAMS.frames[PARAMS.frames.length-1].color.a;
-        for(let s = 0; s <= anim.quality; s++) {
+        for(let s = 0; s < anim.quality; s++) {
           let etapa = { color: {} };
           etapa.x = p.lerp(previous.x, anim.x, s*1/anim.quality);
           etapa.y = p.lerp(previous.y, anim.y, s*1/anim.quality);
@@ -448,19 +780,33 @@ new p5((p) => {
           etapa.color.a = p.lerp(previous.color.a, anim.color.a, s*1/anim.quality);
           p.fill(etapa.color.r, etapa.color.g, etapa.color.b, etapa.color.a*255);
           p.noStroke();
-          p.rect(etapa.x*PARAMS.gridSize, etapa.y*PARAMS.gridSize, etapa.w*PARAMS.gridSize, etapa.h*PARAMS.gridSize, PARAMS.gridSize/2);
+          p.rect(etapa.x*PARAMS.gridSize, etapa.y*PARAMS.gridSize, etapa.w*PARAMS.gridSize, etapa.h*PARAMS.gridSize, PARAMS.gridSize*PARAMS.borderRadius);
           // this if makes sure the very LAST frame is drawn
-          if(s+1 > anim.quality) {
+          if(s+1 >= anim.quality) {
             p.fill(anim.color.r, anim.color.g, anim.color.b, anim.color.a*255);
             p.noStroke();
-            p.rect(anim.x*PARAMS.gridSize, anim.y*PARAMS.gridSize, anim.w*PARAMS.gridSize, anim.h*PARAMS.gridSize, PARAMS.gridSize/2);
+            p.rect(anim.x*PARAMS.gridSize, anim.y*PARAMS.gridSize, anim.w*PARAMS.gridSize, anim.h*PARAMS.gridSize, PARAMS.gridSize*PARAMS.borderRadius);
           }
         }
         anim.finished = true;
       }
       
-      anim.step+=anim.speed/1000;
-      if(anim.loop && anim.step > PARAMS.frames.length) {
+      if(anim.progress < PARAMS.frames.length) {
+        // tofixed(2) doesn't seem to work below, idk why. answer: it returns a string
+        anim.progress += p.float((p.nf(anim.speed/1000, 1, 2)));
+        // anim.progress += anim.speed/1000;
+        switch(easeType.value) {
+          case "linear":
+            anim.step = anim.progress;
+            break;
+          default:
+            anim.step = p.int(anim.progress) + parseFloat(currentEase((anim.progress % 1).toFixed(2)));
+            break;
+        }
+      }
+
+      if(anim.loop && anim.progress >= PARAMS.frames.length) {
+        anim.progress = 0;
         anim.step = 0;
         anim.finished = false;
       }
@@ -542,22 +888,95 @@ new p5((p) => {
           });
           
           if(novaForma.startX != undefined && novaForma.startY != undefined) {
+            let chosenColor;
+            switch(PARAMS.frames.length % paleta.value) {
+              case 0: chosenColor = coresRGB.laranjaEnergetico; break;
+              case 1: chosenColor = coresRGB.verdeVibrante; break;
+              case 2: chosenColor = coresRGB.cinzaAlto; break;
+              case 3: chosenColor = coresRGB.cinzaEscuro; break;
+              case 4: chosenColor = coresRGB.cinzaBaixo; break;
+              case 5: chosenColor = coresRGB.cinzaClaro; break;
+            }
+            // p.print(chosenColor);
+            // chosenColor = { ...chosenColor };
+            // p.print(chosenColor);
             PARAMS.frames.push({
               x: p.min(novaForma.startX, novaForma.endX),
               y: p.min(novaForma.startY, novaForma.endY),
               w: p.abs(novaForma.endX - novaForma.startX) + 1,
               h: p.abs(novaForma.endY - novaForma.startY) + 1,
-              color: {
-                r: p.color(cores[PARAMS.frames.length%4]).levels[0],
-                g: p.color(cores[PARAMS.frames.length%4]).levels[1],
-                b: p.color(cores[PARAMS.frames.length%4]).levels[2],
-                a: p.color(cores[PARAMS.frames.length%4]).levels[3]/255,
-              }
+              // color: chosenColor
+              color: paleta.value == 1 ? { ...chosenColor } : chosenColor
+              // color: {
+              //   r: p.color(cores[PARAMS.frames.length%4]).levels[0],
+              //   g: p.color(cores[PARAMS.frames.length%4]).levels[1],
+              //   b: p.color(cores[PARAMS.frames.length%4]).levels[2],
+              //   a: p.color(cores[PARAMS.frames.length%4]).levels[3]/255,
+              // }
             });
           } else if(hoveringX && clickOnX) PARAMS.frames.splice(p.max(hoveringFrames), 1);
 
           frames.children.forEach((oldBind) => { oldBind.dispose(); });
-          PARAMS.frames.forEach((frame, i) => { frames.addBinding(frame, 'color', { label: "Frame "+(i+1) }); });
+          PARAMS.frames.forEach((frame, i) => {
+            let paletteOptions;
+            switch(paleta.value) {
+              default:
+              case 4:
+                paletteOptions = [
+                  {text: 'Laranja Energético', value: coresRGB.laranjaEnergetico},
+                  {text: 'Verde Vibrante', value: coresRGB.verdeVibrante},
+                  {text: 'Cinza Alto', value: coresRGB.cinzaAlto},
+                  {text: 'Cinza Escuro', value: coresRGB.cinzaEscuro}
+                ]
+                break;
+              case 6:
+                paletteOptions = [
+                  {text: 'Laranja Energético', value: coresRGB.laranjaEnergetico},
+                  {text: 'Verde Vibrante', value: coresRGB.verdeVibrante},
+                  {text: 'Cinza Claro', value: coresRGB.cinzaClaro},
+                  {text: 'Cinza Baixo', value: coresRGB.cinzaBaixo},
+                  {text: 'Cinza Alto', value: coresRGB.cinzaAlto},
+                  {text: 'Cinza Escuro', value: coresRGB.cinzaEscuro}
+                ]
+                break;
+            }
+
+            var corFrame;
+            if(paleta.value == 1) {
+              corFrame = frames.addBinding(frame, 'color', { label: "Forma "+(i+1) });
+            } else {
+              paletteOptions.forEach((option) => {
+                if(frame.color.r == option.value.r && frame.color.g == option.value.g && frame.color.b == option.value.b && frame.color.a == option.value.a) {
+                  frame.color = option.value;
+                }
+              });
+              corFrame = frames.addBlade({ label: "Forma "+(i+1), view: 'list',
+                options: paletteOptions,
+                value: frame.color
+              }).on('change', () => { frame.color = corFrame.value });
+            }
+            //frame.colorOptions = corFrame;
+
+            // const corFrame = frames.addBlade({ label: "Forma "+(i+1), view: 'list',
+            //   options: paletteOptions,
+            //   value: frame.color
+            // }).on('change', () => { frame.color = corFrame.value });
+            // frame.colorOptions = corFrame;
+
+            // frames.addBinding(frame, 'color', { label: "Frame "+(i+1) });
+            // const corFrame = frames.addBlade({ label: "Forma "+(i+1), view: 'list',
+            //   options: [
+            //     {text: 'Cinza Escuro', value: coresRGB.cinzaEscuro},
+            //     {text: 'Cinza Alto', value: coresRGB.cinzaAlto},
+            //     {text: 'Cinza Baixo', value: coresRGB.cinzaBaixo},
+            //     {text: 'Cinza Claro', value: coresRGB.cinzaClaro},
+            //     {text: 'Verde Vibrante', value: coresRGB.verdeVibrante},
+            //     {text: 'Laranja Energético', value: coresRGB.laranjaEnergetico},
+            //   ],
+            //   value: frame.color
+            // }).on('change', () => { frame.color = corFrame.value });
+            // frame.colorOptions = corFrame;
+          });
         }
       }
     };
@@ -569,5 +988,41 @@ function grid(rows, cols, fun) {
     for(let j = 0; j < cols; j++) {
       fun(i, j);
     }
+  }
+}
+
+function currentEase(valueToEase) {
+  switch(easeType.value) {
+    default: case "linear": return valueToEase.toFixed(2)%1;
+    case "easeInSine": return easeInSine(valueToEase).toFixed(2);
+    case "easeOutSine": return easeOutSine(valueToEase).toFixed(2);
+    case "easeInOutSine": return easeInOutSine(valueToEase).toFixed(2);
+    case "easeInQuad": return easeInQuad(valueToEase).toFixed(2);
+    case "easeOutQuad": return easeOutQuad(valueToEase).toFixed(2);
+    case "easeInOutQuad": return easeInOutQuad(valueToEase).toFixed(2);
+    case "easeInCubic": return easeInCubic(valueToEase).toFixed(2);
+    case "easeOutCubic": return easeOutCubic(valueToEase).toFixed(2);
+    case "easeInOutCubic": return easeInOutCubic(valueToEase).toFixed(2);
+    case "easeInQuart": return easeInQuart(valueToEase).toFixed(2);
+    case "easeOutQuart": return easeOutQuart(valueToEase).toFixed(2);
+    case "easeInOutQuart": return easeInOutQuart(valueToEase).toFixed(2);
+    case "easeInQuint": return easeInQuint(valueToEase).toFixed(2);
+    case "easeOutQuint": return easeOutQuint(valueToEase).toFixed(2);
+    case "easeInOutQuint": return easeInOutQuint(valueToEase).toFixed(2);
+    case "easeInExpo": return easeInExpo(valueToEase).toFixed(2);
+    case "easeOutExpo": return easeOutExpo(valueToEase).toFixed(2);
+    case "easeInOutExpo": return easeInOutExpo(valueToEase).toFixed(2);
+    case "easeInCirc": return easeInCirc(valueToEase).toFixed(2);
+    case "easeOutCirc": return easeOutCirc(valueToEase).toFixed(2);
+    case "easeInOutCirc": return easeInOutCirc(valueToEase).toFixed(2);
+    case "easeInBack": return easeInBack(valueToEase).toFixed(2);
+    case "easeOutBack": return easeOutBack(valueToEase).toFixed(2);
+    case "easeInOutBack": return easeInOutBack(valueToEase).toFixed(2);
+    case "easeInElastic": return easeInElastic(valueToEase).toFixed(2);
+    case "easeOutElastic": return easeOutElastic(valueToEase).toFixed(2);
+    case "easeInOutElastic": return easeInOutElastic(valueToEase).toFixed(2);
+    case "easeOutBounce": return easeOutBounce(valueToEase).toFixed(2);
+    case "easeInBounce": return easeInBounce(valueToEase).toFixed(2);
+    case "easeInOutBounce": return easeInOutBounce(valueToEase).toFixed(2);
   }
 }
